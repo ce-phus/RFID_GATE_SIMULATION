@@ -9,7 +9,8 @@ db_params={
     'host':'localhost',
     'dbname':'inventory',
     'user':'postgres',
-    'password':'Admin',
+    'password':'postgres',
+    'port': '5432',
 
 }
 
@@ -25,13 +26,7 @@ try:
     # create a cursor
     cur = conn.cursor()
 
-    # execute a statement 
-    # print('Postgresql database version: ')
-    # cur.execute('SELECT version()')
-
-    # display the Postgresql database server version
-    # db_version = cur.fetchone()
-    # print(db_version)
+    
     while True:
         # SImulate RFID scanning(Replace with actual RFID READING CODE)
         scanned_tag =input('Enter the RFID UID code(or "q" to quit): ').strip()
