@@ -3,7 +3,11 @@ from mfrc522 import SimpleMFRC522
 import psycopg2
 import tkinter as tk
 from tkinter import simpledialog, messagebox
-from tkinter import *
+import requests  # Import the requests library for making HTTP requests
+import math
+
+# Define the STK service endpoint
+stk_service_endpoint = 'https://example.com/stk-push'  # Replace with your actual STK service endpoint
 
 # Define the PostgreSQL database connection parameters
 db_params = {
@@ -32,10 +36,9 @@ root.title("RFID Scanning and Payment Display")
 root.geometry("1920x1080")  # Set screen size
 
 # Create tkinter labels for displaying information
-total_price_label = tk.Label(root, text="Total Price: Ksh0.00", font=("Times New Roman", 30, "bold"), bg='gray20', fg='gold', bd=12, relief= GROOVE)
-total_price_label.pack(fill=X)
-item_info_label = tk.Label(root, text="Items in Trolley:", font=("Times New Roman", 30, "bold"),  bg='gray20', fg='gold', bd=12, relief= GROOVE)
-item_listbox = tk.Listbox(root, width=60, height=10, font=("Times New Roman", 30), bd=12)
+total_price_label = tk.Label(root, text="Total Price: $0.00", font=("Times New Roman", 30, "bold"))
+item_info_label = tk.Label(root, text="Items in Trolley:", font=("Times New Roman", 30, "bold"))
+item_listbox = tk.Listbox(root, width=50, height=10, font=("Times New Roman", 30))
 
 # Pack labels to display
 total_price_label.pack()
@@ -51,9 +54,6 @@ def display_combined_table(cursor, trolley_id):
     combined_table = cursor.fetchall()
     return combined_table
 
-# Function to handle payment
-import math
-
 # Function to check if trolley ID is in the file
 def check_trolley_id(trolley_id):
     with open(trolley_file_path, 'r') as file:
@@ -65,64 +65,52 @@ def write_trolley_id(trolley_id):
     with open(trolley_file_path, 'a') as file:
         file.write(str(trolley_id) + '\n')
 
+# Function to write scanned items to the file
 def write_scanned_items_to_file(trolley_id, scanned_items):
     with open(scanned_items_file_path, 'a') as file:
         file.write(f"Trolley ID: {trolley_id}\n")
-        for item in scanned_items:
-            item_uid, item_price, item_name = item
-            file.write(f"Item UID: {item_uid}, Item Name: {item_name}, Item Price: Ksh{item_price:.2f}\n")
+        for item_uid, item_price, item_name in scanned_items:
+            file.write(f"Item UID: {item_uid}, Item Name: {item_name}, Item Price: ${item_price:.2f}\n")
         file.write("\n")
 
-
-
-
-
-
+# Function to display items in the listbox
 def display_items_in_listbox():
     # Clear the listbox
     item_listbox.delete(0, tk.END)
 
     # Display item details at the top
-    item_listbox.insert(tk.END, f"{'Item UID':<20} | {'Item Name':<40} | {'Item Price':>15}")
-    item_listbox.insert(tk.END, "="*65)
+    item_listbox.insert(tk.END, "Item UID\tItem Name\tItem Price")
+    item_listbox.insert(tk.END, "="*50)
 
     # Display each item in the listbox
-    total_price = 0.0  # Initialize total price
-
     for item_uid, item_price, item_name in combined_table:
-        uid_str = f"{item_uid:<16}"
-        name_str = f"{item_name:<36}"
-        price_str = f"Ksh{item_price:>13.2f}"
+        uid_str = f"{item_uid}"
+        name_str = f"{item_name}"
+        price_str = f"${item_price:.2f}"
 
         # Concatenate strings for UID, name, and price
-        info = f"{uid_str} | {name_str} | {price_str}"
+        info = f"{uid_str}\t{name_str}\t{price_str}"
 
         # Insert concatenated string into the listbox
         item_listbox.insert(tk.END, info)
+    total_price = 0.0
+    total_price = sum(item[1] for item in combined_table)
+    total_price_label.config(text=f"Total Price: ${total_price:.2f}")
 
-        # Update total price
-        total_price += item_price
-
-    # Update the total price label
-    total_price_label.config(text=f"Total Price: Ksh{total_price:.2f}")
-
-
-
-
+# Function to handle payment
 def make_payment():
+    global total_price
+
     # Prompt for account number (trolley ID)
     trolley_id = simpledialog.askinteger("Payment", "Enter Account Number (Trolley ID):", parent=root)
-
-    # Calculate the total price
-    total_price = sum(item_price for _, item_price, _ in combined_table)
 
     # Check if the entered trolley ID is in the file
     if not check_trolley_id(trolley_id):
         messagebox.showerror("Error", "Wrong Account Number. Account number should match the trolley ID.")
         return
 
-    # Display prompt for the amount payable
-    amount_payable = simpledialog.askfloat("Payment", f"Amount Payable: Ksh{total_price:.2f}\nEnter Amount Paid:", parent=root)
+    # Prompt for amount payable
+    amount_payable = simpledialog.askfloat("Payment", f"Amount Payable: ${total_price:.2f}\nEnter Amount Paid:", parent=root)
     if amount_payable is None:
         return  # User canceled the prompt
 
@@ -131,31 +119,36 @@ def make_payment():
         messagebox.showerror("Payment Error", "Incorrect amount paid.")
         return
 
-    # Process payment (you can customize this part based on your payment system)
-    # For now, just display a success message
-    messagebox.showinfo("Payment Success", "Payment successful! Thank you for shopping with us!")
+    # Simulate STK push by making an HTTP request to the STK service
+    # Note: This is a simplified example. Replace it with your actual STK push implementation
+    try:
+        response = requests.post(stk_service_endpoint, json={'amount': total_price, 'trolley_id': trolley_id})
+        response_data = response.json()
 
-    # Update the database and remove items from the trolley
-    for item_uid, _, _ in combined_table:
-        cursor.execute("DELETE FROM table_trolley WHERE item_uid = %s", (item_uid,))
-        conn.commit()
+        if response_data.get('success'):
+            # Process payment only if the STK push is successful
+            # Update the database and remove items from the trolley
+            for item_uid, _, _ in combined_table:
+                cursor.execute("DELETE FROM table_trolley WHERE item_uid = %s", (item_uid,))
+                conn.commit()
 
-    # Clear the listbox and update the tkinter labels
-    item_listbox.delete(0, tk.END)
+            # Clear the listbox and update the tkinter labels
+            item_listbox.delete(0, tk.END)
 
-    # Disable the payment button
-    pay_button.config(state=tk.DISABLED)
+            # Disable the payment button
+            pay_button.config(state=tk.DISABLED)
 
-    # Write the scanned items details to the file
-    write_scanned_items_to_file(trolley_id, combined_table)
+            # Write the scanned items details to the file
+            write_scanned_items_to_file(trolley_id, combined_table)
 
-    # Display items in the listbox
-    display_items_in_listbox()
+            # Display items in the listbox
+            display_items_in_listbox()
 
-
-
-    # Disable the payment button
-    pay_button.config(state=tk.DISABLED)
+            messagebox.showinfo("Payment Success", "Payment successful! Thank you for shopping with us!")
+        else:
+            messagebox.showerror("STK Push Error", "Error processing STK push. Please try again.")
+    except requests.RequestException as e:
+        messagebox.showerror("STK Push Error", f"Failed to communicate with the STK service. Error: {str(e)}")
 
 # Button to trigger payment
 pay_button = tk.Button(root, text="Make Payment", command=make_payment, state=tk.DISABLED, font=("Times New Roman", 30))
@@ -185,7 +178,6 @@ try:
 
                     combined_table = display_combined_table(cursor, trolley_id)
                     display_items_in_listbox()
-                    
 
                     # Enable the payment button
                     pay_button.config(state=tk.NORMAL)
